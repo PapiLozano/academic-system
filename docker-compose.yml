@@ -1,0 +1,102 @@
+version: "3.9"
+
+services:
+  # ---------------------------------------------------------------------
+  # Bases de datos (una por microservicio -> arquitectura distribuida real)
+  # ---------------------------------------------------------------------
+  auth-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  academic-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: academic_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - academic_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  audit-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: audit_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - audit_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------
+  # Microservicios
+  # ---------------------------------------------------------------------
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@auth-db:5432/auth_db
+      JWT_SECRET: ${JWT_SECRET:-cambiar-este-secreto-en-produccion}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-clave-interna-cambiar}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      MAX_INTENTOS_FALLIDOS: ${MAX_INTENTOS_FALLIDOS:-5}
+      BLOQUEO_MINUTOS: ${BLOQUEO_MINUTOS:-15}
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-admin@universidad.edu}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-Admin123!}
+    depends_on:
+      auth-db:
+        condition: service_healthy
+
+  audit-service:
+    build: ./audit-service
+    ports:
+      - "8002:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@audit-db:5432/audit_db
+      JWT_SECRET: ${JWT_SECRET:-cambiar-este-secreto-en-produccion}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-clave-interna-cambiar}
+    depends_on:
+      audit-db:
+        condition: service_healthy
+
+  academic-service:
+    build: ./academic-service
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@academic-db:5432/academic_db
+      JWT_SECRET: ${JWT_SECRET:-cambiar-este-secreto-en-produccion}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-clave-interna-cambiar}
+      AUTH_SERVICE_URL: http://auth-service:8000
+      AUDIT_SERVICE_URL: http://audit-service:8000
+    depends_on:
+      academic-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      audit-service:
+        condition: service_started
+
+volumes:
+  auth_db_data:
+  academic_db_data:
+  audit_db_data:
