@@ -46,7 +46,7 @@ def startup():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "instance": os.getenv("INSTANCE_NAME", "academic-service")}
 
 
 # ---------------------------------------------------------------------------
