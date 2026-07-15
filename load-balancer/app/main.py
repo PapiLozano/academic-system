@@ -7,6 +7,14 @@ separadas por coma). No guarda estado propio: se apoya en que
 academic-service ya es stateless (autenticacion via JWT), asi que
 cualquier instancia puede atender cualquier peticion sin coordinarse
 con las demas.
+
+Nota sobre compresion: le pedimos al backend la respuesta SIN
+comprimir (Accept-Encoding: identity). Si no lo hacemos, Render puede
+devolver la respuesta comprimida (gzip/brotli); si httpx no logra
+decodificarla igual que la libreria de compresion del backend, el
+cliente (navegador) recibe bytes comprimidos sin la cabecera
+Content-Encoding correspondiente y los muestra como texto corrupto.
+Pedir la respuesta sin comprimir evita ese problema por completo.
 """
 
 import itertools
@@ -36,8 +44,14 @@ if not BACKENDS:
 
 _round_robin = itertools.cycle(BACKENDS)
 
-_HOP_BY_HOP_REQUEST_HEADERS = {"host", "content-length", "connection"}
-_HOP_BY_HOP_RESPONSE_HEADERS = {"content-encoding", "transfer-encoding", "connection"}
+# Cabeceras que NUNCA se deben reenviar tal cual (son especificas de esta
+# conexion HTTP, no del contenido) al pedirle datos al backend.
+_HOP_BY_HOP_REQUEST_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
+
+# Cabeceras que NUNCA se deben reenviar tal cual al responderle al navegador.
+# content-length se excluye para que Starlette la recalcule con el tamano
+# real del cuerpo que estamos devolviendo.
+_HOP_BY_HOP_RESPONSE_HEADERS = {"content-encoding", "transfer-encoding", "connection", "content-length"}
 
 
 @app.get("/lb-status")
@@ -55,6 +69,9 @@ async def proxy(path: str, request: Request):
     forward_headers = {
         k: v for k, v in request.headers.items() if k.lower() not in _HOP_BY_HOP_REQUEST_HEADERS
     }
+    # Pedimos la respuesta sin comprimir para evitar problemas de
+    # decodificacion al reenviarla (ver docstring del modulo).
+    forward_headers["accept-encoding"] = "identity"
 
     async with httpx.AsyncClient(timeout=30) as client:
         upstream = await client.request(
